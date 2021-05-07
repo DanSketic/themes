@@ -3,9 +3,10 @@
 namespace Caffeinated\Themes;
 
 use View;
-use Caffeinated\Manifest\Manifest;
+use Caffeinated\Themes\Manifest;
 use Illuminate\Support\ServiceProvider;
 use Caffeinated\Themes\View\ThemeViewFinder;
+use Caffeinated\Themes\Console\GenerateTheme;
 
 class ThemesServiceProvider extends ServiceProvider
 {
@@ -24,8 +25,8 @@ class ThemesServiceProvider extends ServiceProvider
 	public function boot()
 	{
 		$this->publishes([
-			__DIR__.'/../config/themes.php' => config_path('themes.php')
-		]);
+			__DIR__.'/../config/themes.php' => config_path('themes.php'),
+		], 'config');
 	}
 
 	/**
@@ -35,12 +36,16 @@ class ThemesServiceProvider extends ServiceProvider
 	 */
 	public function register()
 	{
-		$this->mergeConfigFrom(
-		    __DIR__.'/../config/themes.php', 'caffeinated.themes'
+        $this->mergeConfigFrom(
+		    __DIR__.'/../config/themes.php', 'themes'
 		);
-
+		
 		$this->registerServices();
-        $this->registerNamespaces();
+		$this->registerNamespaces();
+
+        $this->commands([
+            GenerateTheme::class
+        ]);
 	}
 
 	/**
@@ -62,15 +67,15 @@ class ThemesServiceProvider extends ServiceProvider
             $themes = [];
             $items  = [];
 
-            if ($path = config('themes.paths.absolute')) {
+            if ($path = base_path('themes')) {
                 if (file_exists($path) && is_dir($path)) {
                     $themes = $this->app['files']->directories($path);
                 }
-            }
-
+			}
+			
             foreach ($themes as $theme) {
                 $manifest = new Manifest($theme.'/theme.json');
-                $items[] = $manifest;
+                $items[]  = collect($manifest->all());
             }
 
             return new Theme($items);
@@ -78,7 +83,7 @@ class ThemesServiceProvider extends ServiceProvider
 
         $this->app->singleton('view.finder', function($app) {
             return new ThemeViewFinder($app['files'], $app['config']['view.paths'], null);
-        });
+		});
 	}
 
     /**
@@ -89,7 +94,10 @@ class ThemesServiceProvider extends ServiceProvider
         $themes = app('caffeinated.themes')->all();
 
         foreach ($themes as $theme) {
-            app('view')->addNamespace($theme->get('slug'), app('caffeinated.themes')->getAbsolutePath($theme->get('slug')).'/views');
+            $namespace = $theme->get('slug');
+			$hint      = app('caffeinated.themes')->path('resources/views', $theme->get('slug'));
+
+            app('view')->addNamespace($namespace, $hint);
         }
-    }
+	}
 }

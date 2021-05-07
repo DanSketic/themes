@@ -3,22 +3,22 @@
 namespace Caffeinated\Themes;
 
 use Illuminate\Support\Collection;
-use Caffeinated\Themes\Traits\RegistersViewLocations;
+use Caffeinated\Themes\Concerns\RegistersViewLocations;
 
 class Theme extends Collection
 {
     use RegistersViewLocations;
-    
+
     /**
      * @var string
      */
     protected $current;
-    
+
     /**
      * @var string|null
      */
     protected $layout = null;
-    
+
     /**
      * Register and set the currently active theme.
      *
@@ -27,34 +27,21 @@ class Theme extends Collection
     public function set($theme)
     {
         list($theme, $parent) = $this->resolveTheme($theme);
-        
-        if (! $this->isCurrent($theme->get('slug')) and (! is_null($this->getCurrent()))) {
-            $this->removeRegisteredLocation($theme, $parent);
+
+        if (! $this->isCurrently($theme->get('slug')) and (! is_null($this->getCurrent()))) {
+            $this->removeRegisteredLocation();
         }
-        
-        $this->addRegisteredLocation($theme, $parent);
-        
+
         $this->setCurrent($theme->get('slug'));
-    }
-    
-    /**
-     * Get the absolute path of the given theme file.
-     *
-     * @param  string  $file
-     * @param  string  $theme
-     * @return string
-     */
-    public function absolutePath($file = '', $theme = null)
-    {
-        if (is_null($theme)) {
-            $theme = $this->getCurrent();
-        }
         
-        return config('themes.paths.absolute')."/$theme/$file";
+        $this->registerAutoload($this->format($theme->get('slug')));
+        $this->addRegisteredLocation($theme, $parent);
+        $this->symlinkPublicDirectory();
+        $this->registerServiceProvider($this->format($theme->get('slug')));
     }
-    
+
     /**
-     * Get the relative path of the given theme file.
+     * Get the path of the given theme file.
      *
      * @param  string  $file
      * @param  string  $theme
@@ -65,10 +52,12 @@ class Theme extends Collection
         if (is_null($theme)) {
             $theme = $this->getCurrent();
         }
-        
-        return config('themes.paths.base')."/$theme/$file";
+
+        $theme = $this->format($theme);
+
+        return base_path("themes/{$theme}/{$file}");
     }
-    
+
     /**
      * Get the layout property.
      *
@@ -78,7 +67,7 @@ class Theme extends Collection
     {
         return $this->layout;
     }
-    
+
     /**
      * Set the layout property.
      *
@@ -88,7 +77,7 @@ class Theme extends Collection
     {
         $this->layout = $layout;
     }
-    
+
     /**
      * Set the current theme property.
      *
@@ -98,7 +87,7 @@ class Theme extends Collection
     {
         $this->current = $theme;
     }
-    
+
     /**
      * Get the current theme property.
      *
@@ -108,26 +97,74 @@ class Theme extends Collection
     {
         return $this->current;
     }
-    
+
     /**
      * Determine if the given theme is the currently set theme.
      *
      * @param  string  $theme
      * @return bool
      */
-    public function isCurrent($theme)
+    public function isCurrently($theme)
     {
         return $this->current === $theme;
     }
-    
+
     /**
-     * Get the absolute path of the given theme.
-     *
-     * @param  string  $theme
+     * Format the given name as the directory basename.
+     * 
+     * @param  string  $name
      * @return string
      */
-    public function getAbsolutePath($theme)
+    protected function format($name)
     {
-        return config('themes.paths.absolute').'/'.$theme;
+        return ucfirst(camel_case($name));
     }
+
+    /**
+     * Symlink the themes public directory so its accesible
+     * by the web.
+     * 
+     * @return void
+     */
+    protected function symlinkPublicDirectory()
+    {
+        if (! file_exists(public_path('themes/'.$this->getCurrent()))) {
+            if (! file_exists(public_path('themes'))) {
+                app()->make('files')->makeDirectory(public_path('themes'));
+            }
+
+            app()->make('files')->link(
+                $this->path('public'), public_path('themes/'.$this->getCurrent())
+            );
+        }
+    }
+
+    /**
+     * Register the theme's service provider.
+     * 
+     * @param  string  $theme
+     * @return void
+     */
+    protected function registerServiceProvider($theme)
+    {
+        app()->register("Themes\\$theme\\Providers\\ThemeServiceProvider");
+    }
+
+    /**
+     * Register the themes path as a PSR-4 reference.
+     * 
+     * @param  string  $theme
+     * @return void
+     */
+    protected function registerAutoload($theme)
+	{
+        $composer = require(base_path('vendor/autoload.php'));
+        
+        $class = 'Themes\\'.$theme.'\\';
+        $path  = $this->path('src/');
+
+        if (! array_key_exists($class, $composer->getClassMap())) {
+            $composer->addPsr4($class, $path);
+        }
+	}
 }
